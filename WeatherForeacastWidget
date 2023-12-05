@@ -1,0 +1,411 @@
+
+using UdonSharp;
+using UnityEngine;
+using VRC.SDKBase;
+using VRC.SDK3.Data;
+using TMPro;
+using System;
+using VRC.SDK3.StringLoading;
+public class WeatherForeacastWidget : UdonSharpBehaviour
+{
+
+    [SerializeField] Transform dateTMPRoot;
+    [SerializeField] TextMeshProUGUI tmp_region_name;
+    [SerializeField] TextMeshProUGUI tmp_report_date;
+    [SerializeField] TextMeshProUGUI tmp_overview;
+    [SerializeField] GameObject failMessage;
+    [SerializeField] TextMeshProUGUI[] tmp_day = new TextMeshProUGUI[7];
+    [SerializeField] TextMeshProUGUI[] tmp_icon = new TextMeshProUGUI[7];
+    [SerializeField] TextMeshProUGUI[] tmp_temp = new TextMeshProUGUI[7];
+    [SerializeField] TextMeshProUGUI[] tmp_date = new TextMeshProUGUI[7];
+
+    VRCUrl url = new VRCUrl("http://www.tianqiapi.com/api?version=v1&appid=23035354&appsecret=8YvlPNrz");
+    void Start()
+    {
+        for(int i = 0;i<dateTMPRoot.childCount;i++)
+        {
+            Transform dateObj = dateTMPRoot.Find("day"+i.ToString());
+            tmp_day[i] = dateObj.Find("day").gameObject.GetComponent<TextMeshProUGUI>();
+            tmp_icon[i] = dateObj.Find("icon").gameObject.GetComponent<TextMeshProUGUI>();
+            tmp_temp[i] = dateObj.Find("temp").gameObject.GetComponent<TextMeshProUGUI>();
+            tmp_date[i] = dateObj.Find("date").gameObject.GetComponent<TextMeshProUGUI>();
+        }
+
+        VRCStringDownloader.LoadUrl(url, (VRC.Udon.Common.Interfaces.IUdonEventReceiver)this);
+
+    }
+
+    public override void OnStringLoadSuccess(IVRCStringDownload result_str)
+    {
+        string json_ = result_str.Result;
+		Debug.Log("Loaded URL successfully!");
+
+        if (VRCJson.TryDeserializeFromJson(json_, out DataToken result))
+        {
+            // Deserialization succeeded! Let's figure out what we've got.
+            if (result.TokenType == TokenType.DataDictionary)
+            {
+                Debug.Log($"Successfully deserialized as a dictionary with {result.DataDictionary.Count} items.");
+
+                // DataToken data = Dict_GetValue(result.DataDictionary,"weatherCodes");
+                // int weatherCode = int.Parse(List_GetValue(data.DataList,0).ToString());
+                // Debug.Log(weatherCode);
+                // Debug.Log(classifyWeatherCode(weatherCode));
+                // tmp.text = classifyWeatherCode(weatherCode);
+                tmp_region_name.text = Dict_GetValue(result.DataDictionary,"name").ToString()
+                                    + " - "+Dict_GetValue(result.DataDictionary,"childName").ToString();
+                string date_str = Dict_GetValue(result.DataDictionary,"reportDatetime").ToString();
+                Debug.Log("date is " + date_str);
+                tmp_report_date.text = date_str;
+                //Debug.Log(DateTime.Parse(date_str).DayOfWeek.ToString().Substring(0,3));
+
+                tmp_overview.text = Dict_GetValue(result.DataDictionary,"overview").ToString();
+                for(int i = 0;i<tmp_day.Length;i++)
+                {
+                    DataToken timeToken = Dict_GetValue(result.DataDictionary,"timeDefines");
+                    string time_str = List_GetValue(timeToken.DataList,i).ToString();
+                    tmp_day[i].text = DateTime.Parse(time_str).DayOfWeek.ToString().Substring(0,3);
+                    tmp_date[i].text = DateTime.Parse(time_str).ToString("M/dd");
+
+                    DataToken weatherToken = Dict_GetValue(result.DataDictionary,"weatherCodes");
+                    int weatherCode = int.Parse(List_GetValue(weatherToken.DataList,i).ToString());
+                    tmp_icon[i].text = classifyWeatherCode(weatherCode);
+
+                    DataToken tempMaxToken = Dict_GetValue(result.DataDictionary,"tempsMax");
+                    string tempMax = List_GetValue(tempMaxToken.DataList,i).ToString();
+                    DataToken tempMinToken = Dict_GetValue(result.DataDictionary,"tempsMin");
+                    string tempMin = List_GetValue(tempMinToken.DataList,i).ToString();
+                    if(tempMin == "") tempMin = "-";
+                    if(tempMax == "") tempMax = "-";
+                    tmp_temp[i].text = tempMin+"°/"+tempMax+"°";
+                }
+
+                
+                
+            }
+        }
+        else
+        {
+            // Deserialization failed. Let's see what the error was.
+            Debug.Log($"Failed to Deserialize json {json_} - {result.ToString()}");
+            OnAPIFetchFail();
+        }
+    }
+
+    public override void OnStringLoadError(IVRCStringDownload result)
+    {
+        OnAPIFetchFail();
+    }
+
+    void OnAPIFetchFail()
+    {
+        failMessage.SetActive(true);
+    }
+
+    DataToken Dict_GetValue(DataDictionary dict, string key)
+    {
+        if (dict.TryGetValue(key, out DataToken value))
+        {
+            //Debug.Log($"Success! {value}");
+            return value;
+        }
+        else
+        {
+            //Debug.Log($"Failed! {value}");
+        }
+        return "";
+    }
+
+    DataToken List_GetValue(DataList list, int id)
+    {
+        if (list.TryGetValue(id, out DataToken value))
+        {
+            //Debug.Log($"Success! {value}");
+            return value;
+        }
+        else
+        {
+            //Debug.Log($"Failed! {value}");
+        }
+        return "";
+    }
+
+    string classifyWeatherCode(int weather_code)
+    {
+        string icon_code = "";
+        switch (weather_code)
+        {
+            //--------Clear（晴れ）-----------------
+            case 100:
+            case 123:
+            case 124:
+            case 130:
+            case 131:
+                icon_code = "N";
+                Debug.Log("晴れ");
+                break;
+
+            //--------晴れ時々（一時）曇り----------------
+            case 101:
+            case 132:
+                icon_code = "M";
+                Debug.Log("晴れ時々曇り");
+                break;
+
+            //--------晴れ時々（一時）雨----------------
+            case 102:
+            case 103:
+            case 106:
+            case 107:
+            case 108:
+            case 120:
+            case 121:
+            case 140:
+                icon_code = "J";
+                Debug.Log("晴れ時々雨");
+                break;
+
+            //--------晴れ時々（一時）雪----------------
+            case 104:
+            case 105:
+            case 160:
+            case 170:
+                icon_code = "K";
+                Debug.Log("晴れ時々雪");
+                break;
+
+            //--------晴れ後曇り----------------
+            case 110:
+            case 111:
+                icon_code = "g";
+                Debug.Log("晴れ後曇り");
+                break;
+
+            //--------晴れ後雨----------------
+            case 112:
+            case 113:
+            case 114:
+            case 118:
+            case 119:
+            case 122:
+            case 125:
+            case 126:
+            case 127:
+            case 128:
+                icon_code = "h";
+                Debug.Log("晴れ後雨");
+                break;
+
+            //--------晴れ後雪----------------
+            case 115:
+            case 116:
+            case 117:
+            case 181:
+                icon_code = "i";
+                Debug.Log("晴れ後雪");
+                break;
+
+            //--------曇り-----------------
+            case 200:
+            case 209:
+            case 231:
+                icon_code = "T";
+                Debug.Log("曇り");
+                break;
+
+            //--------曇り時々晴れ-----------------
+            case 201:
+            case 223:
+                icon_code = "C";
+                Debug.Log("曇り時々晴れ");
+                break;
+
+            //--------曇り時々雨-----------------
+            case 202:
+            case 203:
+            case 206:
+            case 207:
+            case 208:
+            case 220:
+            case 221:
+            case 240:
+                icon_code = "[";
+                Debug.Log("曇り時々雨");
+                break;
+
+            //--------曇り一時雪-----------------
+            case 204:
+            case 205:
+            case 250:
+            case 260:
+            case 270:
+                icon_code = "]";
+                Debug.Log("曇り一時雪");
+                break;
+
+            //--------曇り後晴れ-----------------
+            case 210:
+            case 211:
+                icon_code = "j";
+                Debug.Log("曇り後晴れ");
+                break;
+
+            //--------曇り後雨-----------------
+            case 212:
+            case 213:
+            case 214:
+            case 218:
+            case 219:
+            case 222:
+            case 224:
+            case 225:
+            case 226:
+                icon_code = "k";
+                Debug.Log("曇り後雨");
+                break;
+
+            //--------曇り後雪-----------------
+            case 215:
+            case 216:
+            case 217:
+            case 228:
+            case 229:
+            case 230:
+            case 281:
+                icon_code = "l";
+                Debug.Log("曇り後雪");
+                break;
+
+            //--------雨-----------------
+            case 300:
+            case 304:
+            case 306:
+            case 328:
+            case 329:
+            case 350:
+                icon_code = "[";
+                Debug.Log("雨");
+                break;
+
+            //--------雨時々晴れ-----------------
+            case 301:
+                icon_code = "J";
+                Debug.Log("雨時々晴れ");
+                break;
+
+            //--------雨時々曇り-----------------
+            case 302:
+                icon_code = "[";
+                Debug.Log("雨時々曇り");
+                break;
+
+            //--------雨時々雪-----------------
+            case 303:
+            case 309:
+            case 322:
+                icon_code = "]";
+                Debug.Log("雨時々雪");
+                break;
+
+            //--------暴風雨-----------------
+            case 308:
+                icon_code = "Y";
+                Debug.Log("暴風雨");
+                break;
+
+            //--------雨後晴れ-----------------
+            case 311:
+            case 316:
+            case 320:
+            case 323:
+            case 324:
+            case 325:
+                icon_code = "m";
+                Debug.Log("雨後晴れ");
+                break;
+
+            //--------雨後曇り-----------------
+            case 313:
+            case 317:
+            case 321:
+                icon_code = "n";
+                Debug.Log("雨後曇り");
+                break;
+
+            //--------雨後雪-----------------
+            case 314:
+            case 315:
+            case 326:
+            case 327:
+                icon_code = "o";
+                Debug.Log("雨後雪");
+                break;
+
+            //--------雪-----------------
+            case 340:
+            case 400:
+            case 405:
+            case 425:
+            case 426:
+            case 427:
+            case 450:
+                icon_code = "]";
+                Debug.Log("雪");
+                break;
+
+            //--------雪時々晴れ-----------------
+            case 401:
+                icon_code = "K";
+                Debug.Log("雪時々晴れ");
+                break;
+
+            //--------雪時々曇り-----------------
+            case 402:
+                icon_code = "]";
+                Debug.Log("雪時々曇り");
+                break;
+
+            //--------雪時々雨-----------------
+            case 403:
+            case 409:
+                icon_code = "]";
+                Debug.Log("雪時々雨");
+                break;
+
+            //--------暴風雪-----------------
+            case 406:
+            case 407:
+                icon_code = "V";
+                Debug.Log("暴風雪");
+                break;
+
+            //--------雪後晴れ-----------------
+            case 361:
+            case 411:
+            case 420:
+                icon_code = "p";
+                Debug.Log("雪後晴れ");
+                break;
+
+            //--------雪後曇り-----------------
+            case 371:
+            case 413:
+            case 421:
+                icon_code = "q";
+                Debug.Log("雪後曇り");
+                break;
+
+            //--------雪後雨-----------------
+            case 414:
+            case 422:
+            case 423:
+                icon_code = "r";
+                Debug.Log("雪後雨");
+                break;
+
+            default:
+                break;
+        }
+        return icon_code;
+    }
+}
